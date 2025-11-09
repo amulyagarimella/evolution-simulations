@@ -96,56 +96,97 @@ def word_fitness(word, target="GENE"):
     return 1.0 / (1.0 + distance_from_target)
 
 # Evolution simulation
-def simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100, show_invalid=True, edits_per_step=1):
+def simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100, show_invalid=True, edits_per_step=1, n_copies=1):
     """
-    Returns list of (current_word, attempted_word, accepted) tuples for animation.
+    Simulates evolution with multiple gene copies evolving in parallel.
 
     Args:
+        word_graph: NetworkX graph of valid words
+        N_e: Effective population size (selection strength)
+        start_word: Starting word
+        target_word: Target word
+        n_steps: Maximum number of steps
+        show_invalid: Not used anymore (kept for compatibility)
         edits_per_step: Number of single-letter edits to apply per mutation step (default=1)
+        n_copies: Number of gene copies (1 = essential gene, >1 = with duplications)
+
+    Returns:
+        trajectory: List of (step_data, visit_density_dict) tuples
+        step_data is a list of (copy_id, current_word, attempted_word, accepted, status) for each copy
     """
+    # Track active copies - each copy has its own current word
+    active_copies = {i: start_word for i in range(n_copies)}
+    dead_copies = set()
+
+    # Track visit density for visualization
+    visit_density = {}
+    visit_density[start_word] = n_copies  # All copies start here
+
     trajectory = []
-    current = start_word
 
     for step in range(n_steps):
-        # Try a random mutation with multiple edits
-        attempted = current
+        step_data = []
 
-        # Apply edits_per_step mutations sequentially
-        for _ in range(edits_per_step):
-            neighbors = list(word_graph.neighbors(attempted))
-            if not neighbors:
-                break
-            attempted = random.choice(neighbors)
-        
-        # Check if valid
-        is_valid = word_graph.nodes[attempted]['valid']
-        
-        if not is_valid:
-            # Invalid - selection removes it
-            trajectory.append((current, attempted, False, 'invalid'))
-            continue
-        
-        # Valid - check fitness
-        current_fitness = word_fitness(current, target_word)
-        attempted_fitness = word_fitness(attempted, target_word)
-        
-        # Selection: accept if better, sometimes accept if neutral/slightly worse
-        if attempted_fitness >= current_fitness:
-            accept = True
-        else:
-            # Drift: occasionally accept slightly deleterious
-            s = (attempted_fitness - current_fitness) / current_fitness
-            p_accept = np.exp(2 * N_e * s)  # Simplified from fixation probability
-            accept = (random.random() < p_accept)
-        
-        trajectory.append((current, attempted, accept, 'valid'))
+        # Each active copy attempts a mutation
+        for copy_id in list(active_copies.keys()):
+            current = active_copies[copy_id]
 
-        if accept:
-            current = attempted
-            if current == target_word:
-                # Reached target - stop simulation
-                break
-    
+            # Try a random mutation with multiple edits
+            attempted = current
+
+            # Apply edits_per_step mutations sequentially
+            for _ in range(edits_per_step):
+                neighbors = list(word_graph.neighbors(attempted))
+                if not neighbors:
+                    break
+                attempted = random.choice(neighbors)
+
+            # Check if valid
+            is_valid = word_graph.nodes[attempted]['valid']
+
+            if not is_valid:
+                # Invalid - this copy dies
+                step_data.append((copy_id, current, attempted, False, 'invalid'))
+                dead_copies.add(copy_id)
+                del active_copies[copy_id]
+
+                # If this was the last copy, simulation ends
+                if len(active_copies) == 0:
+                    trajectory.append((step_data, dict(visit_density)))
+                    return trajectory
+                continue
+
+            # Valid - check fitness
+            current_fitness = word_fitness(current, target_word)
+            attempted_fitness = word_fitness(attempted, target_word)
+
+            # Selection: accept if better, sometimes accept if neutral/slightly worse
+            if attempted_fitness >= current_fitness:
+                accept = True
+            else:
+                # Drift: occasionally accept slightly deleterious
+                s = (attempted_fitness - current_fitness) / current_fitness
+                p_accept = np.exp(2 * N_e * s)  # Simplified from fixation probability
+                accept = (random.random() < p_accept)
+
+            step_data.append((copy_id, current, attempted, accept, 'valid'))
+
+            if accept:
+                active_copies[copy_id] = attempted
+                # Update visit density
+                visit_density[attempted] = visit_density.get(attempted, 0) + 1
+
+                # Check if any copy reached the target
+                if attempted == target_word:
+                    trajectory.append((step_data, dict(visit_density)))
+                    return trajectory
+
+        trajectory.append((step_data, dict(visit_density)))
+
+        # If all copies died, end simulation
+        if len(active_copies) == 0:
+            break
+
     return trajectory
 
 # Visualization
