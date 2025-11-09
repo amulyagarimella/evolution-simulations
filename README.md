@@ -34,25 +34,6 @@ python run_stats.py compare --num_runs=50 --max_copies=5
 python run_stats.py list_results
 ```
 
-## Deploy to Web (Free)
-
-1. Push to GitHub:
-```bash
-git add .
-git commit -m "Add Streamlit app"
-git push
-```
-
-2. Go to [share.streamlit.io](https://share.streamlit.io)
-
-3. Sign in with GitHub
-
-4. Click "New app" and select your repo
-
-5. Set main file to `app.py` and click "Deploy"
-
-Done! Your app will be live in ~2 minutes.
-
 ## Tips
 
 - Start with small `num_runs` (10-20) to test parameters
