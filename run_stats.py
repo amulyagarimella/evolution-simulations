@@ -19,8 +19,44 @@ from typing import Dict, List, Tuple, Optional
 import fire
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import numpy as np
+import seaborn as sns
 from sim1 import build_word_graph, simulate_word_evolution
+
+# Claude-inspired color palette (warm, inviting tones)
+CLAUDE_COLORS = {
+    'primary': '#D97757',      # Warm coral/orange
+    'secondary': '#C75146',    # Deep coral
+    'accent1': '#E8A87C',      # Light peach
+    'accent2': '#B85C50',      # Rust
+    'dark': '#5D4E37',         # Coffee brown
+    'gradient': ['#E8A87C', '#D97757', '#C75146', '#B85C50', '#9B4F47']  # Light to dark
+}
+
+def setup_publication_style():
+    """Configure matplotlib and seaborn for publication-quality figures."""
+    # Seaborn talk preset for larger fonts/elements
+    sns.set_context("talk", font_scale=1.1)
+    sns.set_style("whitegrid", {
+        'grid.linestyle': '--',
+        'grid.alpha': 0.3,
+        'axes.edgecolor': '.15',
+        'axes.linewidth': 1.2,
+    })
+
+    # Set Helvetica font for Illustrator compatibility
+    mpl.rcParams['font.family'] = 'sans-serif'
+    mpl.rcParams['font.sans-serif'] = ['Helvetica', 'Arial', 'DejaVu Sans']
+    mpl.rcParams['pdf.fonttype'] = 42  # TrueType fonts (editable in Illustrator)
+    mpl.rcParams['ps.fonttype'] = 42
+    mpl.rcParams['axes.unicode_minus'] = False  # Use proper minus sign
+
+    # Higher quality settings
+    mpl.rcParams['figure.dpi'] = 150
+    mpl.rcParams['savefig.dpi'] = 300
+    mpl.rcParams['savefig.bbox'] = 'tight'
+    mpl.rcParams['savefig.pad_inches'] = 0.1
 
 
 # Results directory configuration
@@ -278,7 +314,7 @@ def run_batch_simulations(num_runs: int, N_e: int, start_word: str, target_word:
 
 def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS_DIR):
     """
-    Generate 4 comparison plots from multiple result files.
+    Generate 4 publication-quality comparison plots from multiple result files.
 
     Args:
         result_files: List of paths to JSON result files
@@ -287,6 +323,9 @@ def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS
     Returns:
         Dictionary mapping plot names to file paths
     """
+    # Setup publication style
+    setup_publication_style()
+
     # Load all results
     all_data = []
     for filepath in result_files:
@@ -311,98 +350,106 @@ def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS
 
     plots_saved = {}
 
+    # Create color palette based on number of conditions
+    x = sorted(df['n_copies'].unique())
+    n_conditions = len(x)
+    if n_conditions <= len(CLAUDE_COLORS['gradient']):
+        colors = CLAUDE_COLORS['gradient'][:n_conditions]
+    else:
+        # Generate more colors if needed
+        colors = sns.color_palette("YlOrRd", n_colors=n_conditions)
+
     # PLOT 1: Line plot - Average attempts/run vs # copies
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(10, 7))
 
     avg_attempts = grouped['attempts'].mean()
     std_attempts = grouped['attempts'].std()
-    x = avg_attempts.index
 
-    ax.plot(x, avg_attempts.values, marker='o', linewidth=2, markersize=8, color='#2E86AB')
+    ax.plot(x, avg_attempts.values, marker='o', linewidth=3, markersize=10,
+            color=CLAUDE_COLORS['primary'], markeredgecolor='white', markeredgewidth=2)
     ax.fill_between(x,
                      avg_attempts.values - std_attempts.values,
                      avg_attempts.values + std_attempts.values,
-                     alpha=0.3, color='#2E86AB')
+                     alpha=0.25, color=CLAUDE_COLORS['primary'])
 
-    ax.set_xlabel('Number of Gene Copies', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Average Attempts per Run', fontsize=12, fontweight='bold')
-    ax.set_title('Evolutionary Efficiency: Attempts to Success vs Gene Copies',
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlabel('Number of Gene Copies')
+    ax.set_ylabel('Average Attempts per Run')
+    ax.set_title('Evolutionary Efficiency: Gene Duplications Reduce Restart Attempts',
+                 fontweight='bold', pad=20)
     ax.set_xticks(x)
+    sns.despine()
 
-    plot1_path = output_dir / 'plot_avg_attempts_vs_copies.png'
+    plot1_path = output_dir / 'plot_avg_attempts_vs_copies.svg'
     plt.tight_layout()
-    plt.savefig(plot1_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot1_path, format='svg')
     plt.close()
     plots_saved['avg_attempts'] = plot1_path
 
     # PLOT 2: Line plot - Average steps/success vs # copies
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(10, 7))
 
     avg_steps = grouped['steps_per_success'].mean()
     std_steps = grouped['steps_per_success'].std()
 
-    ax.plot(x, avg_steps.values, marker='s', linewidth=2, markersize=8, color='#A23B72')
+    ax.plot(x, avg_steps.values, marker='s', linewidth=3, markersize=10,
+            color=CLAUDE_COLORS['secondary'], markeredgecolor='white', markeredgewidth=2)
     ax.fill_between(x,
                      avg_steps.values - std_steps.values,
                      avg_steps.values + std_steps.values,
-                     alpha=0.3, color='#A23B72')
+                     alpha=0.25, color=CLAUDE_COLORS['secondary'])
 
-    ax.set_xlabel('Number of Gene Copies', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Average Steps per Successful Attempt', fontsize=12, fontweight='bold')
-    ax.set_title('Evolutionary Path Length: Steps to Success vs Gene Copies',
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xlabel('Number of Gene Copies')
+    ax.set_ylabel('Average Steps per Successful Attempt')
+    ax.set_title('Evolutionary Path Length vs Gene Copy Number',
+                 fontweight='bold', pad=20)
     ax.set_xticks(x)
+    sns.despine()
 
-    plot2_path = output_dir / 'plot_avg_steps_vs_copies.png'
+    plot2_path = output_dir / 'plot_avg_steps_vs_copies.svg'
     plt.tight_layout()
-    plt.savefig(plot2_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot2_path, format='svg')
     plt.close()
     plots_saved['avg_steps'] = plot2_path
 
     # PLOT 3: Histogram - Distribution of attempts/run
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    colors = plt.cm.viridis(np.linspace(0, 0.9, len(x)))
+    fig, ax = plt.subplots(figsize=(12, 7))
 
     for i, (n_copy, color) in enumerate(zip(x, colors)):
         data_subset = df[df['n_copies'] == n_copy]['attempts']
-        ax.hist(data_subset, bins=20, alpha=0.6, label=f'{n_copy} copy/copies',
-                color=color, edgecolor='black', linewidth=0.5)
+        ax.hist(data_subset, bins=20, alpha=0.65, label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
+                color=color, edgecolor='white', linewidth=1.5)
 
-    ax.set_xlabel('Attempts per Run', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Frequency', fontsize=12, fontweight='bold')
-    ax.set_title('Distribution of Attempts to Success by Gene Copy Number',
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.legend(fontsize=10, framealpha=0.9)
-    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
+    ax.set_xlabel('Attempts per Run')
+    ax.set_ylabel('Frequency')
+    ax.set_title('Distribution of Restart Attempts by Gene Copy Number',
+                 fontweight='bold', pad=20)
+    ax.legend(title='Gene Copies', frameon=True, fancybox=True, shadow=True)
+    sns.despine()
 
-    plot3_path = output_dir / 'plot_attempts_distribution.png'
+    plot3_path = output_dir / 'plot_attempts_distribution.svg'
     plt.tight_layout()
-    plt.savefig(plot3_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot3_path, format='svg')
     plt.close()
     plots_saved['attempts_dist'] = plot3_path
 
     # PLOT 4: Histogram - Distribution of steps/success
-    fig, ax = plt.subplots(figsize=(12, 6))
+    fig, ax = plt.subplots(figsize=(12, 7))
 
     for i, (n_copy, color) in enumerate(zip(x, colors)):
         data_subset = df[df['n_copies'] == n_copy]['steps_per_success']
-        ax.hist(data_subset, bins=20, alpha=0.6, label=f'{n_copy} copy/copies',
-                color=color, edgecolor='black', linewidth=0.5)
+        ax.hist(data_subset, bins=20, alpha=0.65, label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
+                color=color, edgecolor='white', linewidth=1.5)
 
-    ax.set_xlabel('Steps per Successful Attempt', fontsize=12, fontweight='bold')
-    ax.set_ylabel('Frequency', fontsize=12, fontweight='bold')
-    ax.set_title('Distribution of Steps to Success by Gene Copy Number',
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.legend(fontsize=10, framealpha=0.9)
-    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
+    ax.set_xlabel('Steps per Successful Attempt')
+    ax.set_ylabel('Frequency')
+    ax.set_title('Distribution of Evolutionary Path Lengths by Gene Copy Number',
+                 fontweight='bold', pad=20)
+    ax.legend(title='Gene Copies', frameon=True, fancybox=True, shadow=True)
+    sns.despine()
 
-    plot4_path = output_dir / 'plot_steps_distribution.png'
+    plot4_path = output_dir / 'plot_steps_distribution.svg'
     plt.tight_layout()
-    plt.savefig(plot4_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot4_path, format='svg')
     plt.close()
     plots_saved['steps_dist'] = plot4_path
 
