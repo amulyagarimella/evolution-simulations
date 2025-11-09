@@ -96,20 +96,26 @@ def word_fitness(word, target="GENE"):
     return 1.0 / (1.0 + distance_from_target)
 
 # Evolution simulation
-def simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100, show_invalid=True):
+def simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100, show_invalid=True, edits_per_step=1):
     """
     Returns list of (current_word, attempted_word, accepted) tuples for animation.
+
+    Args:
+        edits_per_step: Number of single-letter edits to apply per mutation step (default=1)
     """
     trajectory = []
     current = start_word
-    
+
     for step in range(n_steps):
-        # Try a random mutation
-        neighbors = list(word_graph.neighbors(current))
-        if not neighbors:
-            break
-            
-        attempted = random.choice(neighbors)
+        # Try a random mutation with multiple edits
+        attempted = current
+
+        # Apply edits_per_step mutations sequentially
+        for _ in range(edits_per_step):
+            neighbors = list(word_graph.neighbors(attempted))
+            if not neighbors:
+                break
+            attempted = random.choice(neighbors)
         
         # Check if valid
         is_valid = word_graph.nodes[attempted]['valid']
@@ -247,9 +253,11 @@ def animate_evolution(word_graph, trajectory, valid_words, invalid_words, attemp
     return anim
 
 if __name__ == "__main__":
+    # Configurable parameters
     N_e = 1000
     start_word = "WORD"
     target_word = "GENE"
+    edits_per_step = 1  # Change this to 2, 3, etc. to make multiple edits at once
 
     word_graph, valid, invalid = build_word_graph(word_length=4, max_delta=1)
 
@@ -258,7 +266,7 @@ if __name__ == "__main__":
     while True:
         attempt += 1
         print(f"\nAttempt {attempt}: Running simulation from {start_word} to {target_word}...")
-        trajectory = simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100)
+        trajectory = simulate_word_evolution(word_graph, N_e, start_word, target_word, n_steps=100, edits_per_step=edits_per_step)
 
         # Check if we reached the target
         # Build the final path to see the last word
