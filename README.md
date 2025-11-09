@@ -27,8 +27,11 @@ python run_stats.py run --num_runs=10
 python run_stats.py run --num_runs=50 --n_copies=1 --output=essential
 python run_stats.py run --num_runs=50 --n_copies=3 --output=duplications
 
-# Auto-compare 1-5 gene copies
+# Auto-compare 1-5 gene copies (automatically generates plots!)
 python run_stats.py compare --num_runs=50 --max_copies=5
+
+# Generate plots from existing results
+python run_stats.py plot --pattern="compare_*.json"
 
 # List saved results
 python run_stats.py list_results

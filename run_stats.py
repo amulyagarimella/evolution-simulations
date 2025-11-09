@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 import fire
 import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 from sim1 import build_word_graph, simulate_word_evolution
 
 
@@ -274,6 +276,139 @@ def run_batch_simulations(num_runs: int, N_e: int, start_word: str, target_word:
     return stats
 
 
+def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS_DIR):
+    """
+    Generate 4 comparison plots from multiple result files.
+
+    Args:
+        result_files: List of paths to JSON result files
+        output_dir: Directory to save plots
+
+    Returns:
+        Dictionary mapping plot names to file paths
+    """
+    # Load all results
+    all_data = []
+    for filepath in result_files:
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+            n_copies = data['runs'][0]['params']['n_copies']
+
+            # Extract metrics for each run
+            for run in data['runs']:
+                if run['success']:
+                    all_data.append({
+                        'n_copies': n_copies,
+                        'attempts': run['attempts'],
+                        'total_steps': run['total_steps'],
+                        'steps_per_success': run['total_steps'] / run['attempts']
+                    })
+
+    df = pd.DataFrame(all_data)
+
+    # Group by n_copies
+    grouped = df.groupby('n_copies')
+
+    plots_saved = {}
+
+    # PLOT 1: Line plot - Average attempts/run vs # copies
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    avg_attempts = grouped['attempts'].mean()
+    std_attempts = grouped['attempts'].std()
+    x = avg_attempts.index
+
+    ax.plot(x, avg_attempts.values, marker='o', linewidth=2, markersize=8, color='#2E86AB')
+    ax.fill_between(x,
+                     avg_attempts.values - std_attempts.values,
+                     avg_attempts.values + std_attempts.values,
+                     alpha=0.3, color='#2E86AB')
+
+    ax.set_xlabel('Number of Gene Copies', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Average Attempts per Run', fontsize=12, fontweight='bold')
+    ax.set_title('Evolutionary Efficiency: Attempts to Success vs Gene Copies',
+                 fontsize=14, fontweight='bold', pad=20)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xticks(x)
+
+    plot1_path = output_dir / 'plot_avg_attempts_vs_copies.png'
+    plt.tight_layout()
+    plt.savefig(plot1_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plots_saved['avg_attempts'] = plot1_path
+
+    # PLOT 2: Line plot - Average steps/success vs # copies
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    avg_steps = grouped['steps_per_success'].mean()
+    std_steps = grouped['steps_per_success'].std()
+
+    ax.plot(x, avg_steps.values, marker='s', linewidth=2, markersize=8, color='#A23B72')
+    ax.fill_between(x,
+                     avg_steps.values - std_steps.values,
+                     avg_steps.values + std_steps.values,
+                     alpha=0.3, color='#A23B72')
+
+    ax.set_xlabel('Number of Gene Copies', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Average Steps per Successful Attempt', fontsize=12, fontweight='bold')
+    ax.set_title('Evolutionary Path Length: Steps to Success vs Gene Copies',
+                 fontsize=14, fontweight='bold', pad=20)
+    ax.grid(True, alpha=0.3, linestyle='--')
+    ax.set_xticks(x)
+
+    plot2_path = output_dir / 'plot_avg_steps_vs_copies.png'
+    plt.tight_layout()
+    plt.savefig(plot2_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plots_saved['avg_steps'] = plot2_path
+
+    # PLOT 3: Histogram - Distribution of attempts/run
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    colors = plt.cm.viridis(np.linspace(0, 0.9, len(x)))
+
+    for i, (n_copy, color) in enumerate(zip(x, colors)):
+        data_subset = df[df['n_copies'] == n_copy]['attempts']
+        ax.hist(data_subset, bins=20, alpha=0.6, label=f'{n_copy} copy/copies',
+                color=color, edgecolor='black', linewidth=0.5)
+
+    ax.set_xlabel('Attempts per Run', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Frequency', fontsize=12, fontweight='bold')
+    ax.set_title('Distribution of Attempts to Success by Gene Copy Number',
+                 fontsize=14, fontweight='bold', pad=20)
+    ax.legend(fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
+
+    plot3_path = output_dir / 'plot_attempts_distribution.png'
+    plt.tight_layout()
+    plt.savefig(plot3_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plots_saved['attempts_dist'] = plot3_path
+
+    # PLOT 4: Histogram - Distribution of steps/success
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    for i, (n_copy, color) in enumerate(zip(x, colors)):
+        data_subset = df[df['n_copies'] == n_copy]['steps_per_success']
+        ax.hist(data_subset, bins=20, alpha=0.6, label=f'{n_copy} copy/copies',
+                color=color, edgecolor='black', linewidth=0.5)
+
+    ax.set_xlabel('Steps per Successful Attempt', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Frequency', fontsize=12, fontweight='bold')
+    ax.set_title('Distribution of Steps to Success by Gene Copy Number',
+                 fontsize=14, fontweight='bold', pad=20)
+    ax.legend(fontsize=10, framealpha=0.9)
+    ax.grid(True, alpha=0.3, linestyle='--', axis='y')
+
+    plot4_path = output_dir / 'plot_steps_distribution.png'
+    plt.tight_layout()
+    plt.savefig(plot4_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plots_saved['steps_dist'] = plot4_path
+
+    return plots_saved
+
+
 class SimulationCLI:
     """CLI for running word evolution simulation statistics."""
 
@@ -432,7 +567,19 @@ class SimulationCLI:
         comparison_path = RESULTS_DIR / f"comparison_{start}_to_{target}_{timestamp}.csv"
         df.to_csv(comparison_path, index=False)
 
-        print(f"\nComparison saved to: {comparison_path}\n")
+        print(f"\nComparison saved to: {comparison_path}")
+
+        # Generate plots automatically
+        print("\nGenerating comparison plots...")
+        result_files = [RESULTS_DIR / f"compare_{start}_to_{target}_copies{i}_{timestamp}.json"
+                       for i in range(1, max_copies + 1)]
+
+        plots = plot_comparison_results(result_files, RESULTS_DIR)
+
+        print("\n✓ Plots saved:")
+        for plot_type, path in plots.items():
+            print(f"  {plot_type}: {path.name}")
+        print()
 
         return df
 
@@ -448,6 +595,103 @@ class SimulationCLI:
         for r in results:
             print(f"  {r.name}")
         print()
+
+    def plot(self, *result_files: str, pattern: str = None):
+        """
+        Generate comparison plots from result files.
+
+        Creates 4 plots:
+        1. Line plot: Average attempts/run vs # gene copies
+        2. Line plot: Average steps/success vs # gene copies
+        3. Histogram: Distribution of attempts/run (color per # copies)
+        4. Histogram: Distribution of steps/success (color per # copies)
+
+        Args:
+            result_files: Paths to JSON result files (relative to results/ or absolute)
+            pattern: Glob pattern to match files (e.g., "compare_*.json")
+
+        Examples:
+            # Plot specific files
+            python run_stats.py plot results/file1.json results/file2.json
+
+            # Plot all comparison files
+            python run_stats.py plot --pattern="compare_*.json"
+
+            # Plot most recent comparison
+            python run_stats.py plot --pattern="comparison_*.csv"
+        """
+        # Determine which files to plot
+        files_to_plot = []
+
+        if pattern:
+            # Use glob pattern
+            files_to_plot = sorted(RESULTS_DIR.glob(pattern))
+            if not files_to_plot:
+                print(f"No files found matching pattern: {pattern}")
+                return
+        elif result_files:
+            # Use specified files
+            for f in result_files:
+                path = Path(f)
+                if not path.is_absolute():
+                    path = RESULTS_DIR / path
+                if not path.exists():
+                    # Try adding .json extension
+                    path = path.with_suffix('.json')
+                if path.exists():
+                    files_to_plot.append(path)
+                else:
+                    print(f"Warning: File not found: {f}")
+        else:
+            # Auto-detect: find files with different n_copies
+            all_results = sorted(RESULTS_DIR.glob("*.json"))
+
+            # Group by start/target, find sets with different n_copies
+            by_params = {}
+            for filepath in all_results:
+                with open(filepath, 'r') as f:
+                    data = json.load(f)
+                    if data['runs']:
+                        params = data['runs'][0]['params']
+                        key = (params['start_word'], params['target_word'],
+                               params['N_e'], params['edits_per_step'])
+                        if key not in by_params:
+                            by_params[key] = []
+                        by_params[key].append((filepath, params['n_copies']))
+
+            # Find the most recent set with multiple n_copies
+            for key, file_list in sorted(by_params.items(), reverse=True):
+                if len(file_list) > 1:
+                    files_to_plot = [f[0] for f in sorted(file_list, key=lambda x: x[1])]
+                    print(f"Auto-detected comparison: {key[0]} → {key[1]}")
+                    break
+
+            if not files_to_plot:
+                print("No comparison sets found. Please specify files or use --pattern")
+                print("\nAvailable files:")
+                self.list_results()
+                return
+
+        # Filter to only .json files
+        json_files = [f for f in files_to_plot if f.suffix == '.json']
+
+        if not json_files:
+            print("No JSON result files found!")
+            return
+
+        print(f"\nGenerating plots from {len(json_files)} result files...")
+        for f in json_files:
+            print(f"  - {f.name}")
+
+        # Generate plots
+        plots = plot_comparison_results(json_files, RESULTS_DIR)
+
+        print("\n✓ Plots saved:")
+        for plot_type, path in plots.items():
+            print(f"  {plot_type}: {path.name}")
+        print()
+
+        return plots
 
 
 if __name__ == '__main__':
