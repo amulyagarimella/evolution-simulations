@@ -3,6 +3,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import random
+import plotly.graph_objects as go
 from sim1 import build_word_graph, simulate_word_evolution, word_fitness
 
 # Page configuration
@@ -209,8 +210,9 @@ if st.session_state.trajectory is not None:
         st.metric("Active Copies", f"{alive_count}/{len(copy_paths)}")
     with col3:
         total_mutations = sum(len(step_data) for step_data, _ in trajectory)
+        print(trajectory[0])
         accepted_count = sum(1 for step_data, _ in trajectory
-                           for _, _, accepted, _ in step_data if accepted)
+                           for _, _, _, accepted, _ in step_data if accepted)
         st.metric("Accepted Mutations", f"{accepted_count}/{total_mutations}")
     with col4:
         success_count = sum(1 for s in copy_status.values() if s == 'success')
@@ -293,78 +295,328 @@ if st.session_state.trajectory is not None:
                 st.markdown(f"Copy {copy_id}: `{current}` → `{attempted}` ⚠️ Rejected")
 
     with col2:
-        # Create visualization with DENSITY-BASED COLORING
-        fig, ax = plt.subplots(figsize=(10, 8))
+        # Create interactive Plotly visualization with hover tooltips (like sim2_viz)
+        # Compute fitness for all words (distance to target)
+        word_fitnesses = {}
+        for word in valid_words:
+            if word == target_word:
+                word_fitnesses[word] = 1.0
+            else:
+                try:
+                    dist = nx.shortest_path_length(word_graph, word, target_word)
+                    max_dist = 10
+                    word_fitnesses[word] = max(0.0, 1.0 - (dist / max_dist))
+                except nx.NetworkXNoPath:
+                    word_fitnesses[word] = 0.0
 
-        # Categorize nodes by visit density
+        # Categorize nodes
         all_visited_words = set(step_density.keys())
-        unexplored = [w for w in valid_words if w not in all_visited_words]
+        unexplored = [w for w in valid_words if w not in all_visited_words and w != target_word]
 
-        # Draw unexplored nodes (light gray)
-        if unexplored:
-            nx.draw_networkx_nodes(word_graph, pos, nodelist=unexplored,
-                                   node_color='lightgray',
-                                   node_size=50, ax=ax, alpha=0.3)
+        # Background nodes (unexplored)
+        bg_x, bg_y, bg_text, bg_fitness = [], [], [], []
+        for word in unexplored:
+            if word in pos:
+                x, y = pos[word]
+                bg_x.append(x)
+                bg_y.append(y)
+                bg_text.append(f"{word}<br>Fitness: {word_fitnesses.get(word, 0):.2f}<br>(not visited)")
+                bg_fitness.append(word_fitnesses.get(word, 0))
 
-        # Draw VISITED nodes with DENSITY-BASED COLORING
-        # Use colormap to show attractor basins
+        bg_trace = go.Scatter(
+            x=bg_x,
+            y=bg_y,
+            mode='markers',
+            hoverinfo='text',
+            text=bg_text,
+            marker=dict(
+                size=7,
+                color=bg_fitness,
+                colorscale='Greys',
+                opacity=0.2,
+                line=dict(width=0)
+            ),
+            name='Unexplored words',
+            showlegend=True
+        )
+
+        # Explored but inactive nodes (visited in past but not currently active)
+        explored_inactive_x, explored_inactive_y, explored_inactive_text, explored_inactive_sizes, explored_inactive_fitness = [], [], [], [], []
         if step_density:
-            visited_words = list(step_density.keys())
-            densities = [step_density[w] for w in visited_words]
-            max_density = max(densities) if densities else 1
+            explored_words = list(step_density.keys())
+            explored_words = [w for w in explored_words 
+                           if w != target_word and w not in current_copy_positions.values()]
+            
+            if explored_words:
+                densities = [step_density[w] for w in explored_words]
+                max_density = max(densities) if densities else 1
+                
+                for word in explored_words:
+                    if word in pos:
+                        x, y = pos[word]
+                        density = step_density[word]
+                        fitness = word_fitnesses.get(word, 0.0)
+                        
+                        explored_inactive_x.append(x)
+                        explored_inactive_y.append(y)
+                        explored_inactive_text.append(f"<b>{word}</b><br>Visits: {density}<br>Fitness: {fitness:.2f}<br>(explored but inactive)")
+                        explored_inactive_sizes.append(10 + (density / max_density) * 15)  # Range: 10-25 pixels
+                        explored_inactive_fitness.append(fitness)
 
-            # Create colormap - blue (low density) to red (high density)
-            import matplotlib.cm as cm
-            cmap = cm.get_cmap('YlOrRd')  # Yellow-Orange-Red for heat map
+        # Custom fitness colorscale for explored nodes (slightly muted)
+        explored_colorscale = [[0, '#d73027'], [0.5, '#fee08b'], [1, '#1a9850']]
+        
+        explored_inactive_trace = go.Scatter(
+            x=explored_inactive_x,
+            y=explored_inactive_y,
+            mode='markers',
+            hoverinfo='text',
+            text=explored_inactive_text,
+            marker=dict(
+                size=explored_inactive_sizes,
+                color=explored_inactive_fitness,
+                colorscale=explored_colorscale,
+                cmin=0,
+                cmax=1,
+                opacity=0.6,
+                line=dict(width=1.5, color='white'),
+                colorbar=dict(
+                    title="Fitness",
+                    thickness=15,
+                    len=0.5,
+                    y=0.25
+                )
+            ),
+            name='Explored but inactive',
+            showlegend=True
+        )
 
-            # Normalize densities
-            norm_densities = [d / max_density for d in densities]
-
-            # Draw each visited node with density-based color
-            for word, density, norm_density in zip(visited_words, densities, norm_densities):
-                # Skip current active words - we'll draw them separately
-                if word not in current_copy_positions.values():
-                    nx.draw_networkx_nodes(word_graph, pos, nodelist=[word],
-                                         node_color=[cmap(norm_density)],
-                                         node_size=100 + density * 20,  # Size also shows density
-                                         ax=ax, alpha=0.7)
-
-        # Draw edges for all evolutionary paths
-        all_path_edges = set()
+        # Build edges from mutation paths FIRST to identify source nodes
+        edge_x, edge_y = [], []
+        edge_list = []  # Store (x0, y0, x1, y1) tuples for annotations
+        source_nodes = set()  # Track nodes that are sources of edges
+        
+        # Collect all edges from copy paths
         for copy_id, path in copy_paths_so_far.items():
-            if len(path) > 1:
-                path_edges = [(path[i], path[i+1]) for i in range(len(path)-1)]
-                all_path_edges.update(path_edges)
+            for i in range(len(path) - 1):
+                from_word = path[i]
+                to_word = path[i + 1]
+                if from_word in pos and to_word in pos: 
+                    x0, y0 = pos[from_word]
+                    x1, y1 = pos[to_word]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+                    edge_list.append((x0, y0, x1, y1))
+                    source_nodes.add(from_word)  # Track source nodes
 
-        if all_path_edges:
-            nx.draw_networkx_edges(word_graph, pos, edgelist=list(all_path_edges),
-                                   edge_color='green', width=1.5, ax=ax, alpha=0.4)
-
-        # Highlight CURRENT positions of active copies
+        # Current active copy positions
+        # Separate source nodes (with arrows) from non-source nodes
+        current_x, current_y, current_text, current_fitness = [], [], [], []
+        source_x, source_y, source_text, source_fitness = [], [], [], []
+        
         if current_copy_positions:
-            nx.draw_networkx_nodes(word_graph, pos,
-                                   nodelist=list(current_copy_positions.values()),
-                                   node_color='red', node_size=250, ax=ax,
-                                   edgecolors='darkred', linewidths=2)
+            for copy_id, word in current_copy_positions.items():
+                if word in pos and word != target_word:  # Exclude target word to avoid duplicate
+                    x, y = pos[word]
+                    fitness = word_fitnesses.get(word, 0.0)
+                    text = f"<b>{word}</b> (Copy {copy_id})<br>Fitness: {fitness:.2f}<br>Current position"
+                    
+                    if word in source_nodes:
+                        # Source nodes (where arrows start) - more transparent
+                        source_x.append(x)
+                        source_y.append(y)
+                        source_text.append(text)
+                        source_fitness.append(fitness)
+                    else:
+                        # Non-source nodes - normal opacity
+                        current_x.append(x)
+                        current_y.append(y)
+                        current_text.append(text)
+                        current_fitness.append(fitness)
 
-        # Draw edges to attempted mutations in this step
-        for copy_id, current, attempted, accepted, status in step_data:
-            if current in word_graph and attempted in word_graph:
-                edge_color = 'orange' if status == 'invalid' else ('green' if accepted else 'yellow')
-                nx.draw_networkx_edges(word_graph, pos, edgelist=[(current, attempted)],
-                                       edge_color=edge_color, width=2, style='dashed', ax=ax)
+        # Custom fitness colorscale: Red (low) -> Yellow (medium) -> Green (high)
+        fitness_colorscale = [[0, '#d73027'], [0.5, '#fee08b'], [1, '#1a9850']]
+        
+        # Non-source nodes trace
+        current_trace = go.Scatter(
+            x=current_x,
+            y=current_y,
+            mode='markers',
+            hoverinfo='text',
+            text=current_text,
+            marker=dict(
+                size=25,  # Larger to stand out as current positions
+                color=current_fitness,
+                colorscale=fitness_colorscale,
+                cmin=0,
+                cmax=1,
+                opacity=0.9,
+                line=dict(width=3, color='white')
+            ),
+            name='Active copies',
+            showlegend=True
+        )
+        
+        # Source nodes trace (more transparent)
+        source_trace = None
+        if source_x:
+            source_trace = go.Scatter(
+                x=source_x,
+                y=source_y,
+                mode='markers',
+                hoverinfo='text',
+                text=source_text,
+                marker=dict(
+                    size=25,
+                    color=source_fitness,
+                    colorscale=fitness_colorscale,
+                    cmin=0,
+                    cmax=1,
+                    opacity=0.5,  # More transparent for source nodes
+                    line=dict(width=3, color='white')
+                ),
+                name='Active copies',
+                showlegend=False  # Don't duplicate in legend
+            )
 
-                # Highlight attempted mutations
-                if status == 'invalid':
-                    nx.draw_networkx_nodes(word_graph, pos, nodelist=[attempted],
-                                           node_color='orange', node_size=150,
-                                           alpha=0.7, ax=ax, edgecolors='red', linewidths=2)
+        # Target word as green star (scales with density like other nodes)
+        target_x, target_y, target_text, target_size = [], [], [], []
+        if target_word in pos:
+            x, y = pos[target_word]
+            target_density = step_density.get(target_word, 0)
+            
+            # Calculate max_density for scaling (same as used for visited nodes)
+            all_densities = list(step_density.values()) if step_density else []
+            max_density = max(all_densities) if all_densities else 1
+            
+            # Scale target size with density using same formula as visited nodes
+            if target_density > 0:
+                target_size_val = 10 + (target_density / max_density) * 15  # Range: 10-25 pixels
+            else:
+                target_size_val = 10  # Minimum size when not visited
+            
+            target_x.append(x)
+            target_y.append(y)
+            if target_density > 0:
+                target_text.append(f"<b>🎯 {target_word} (TARGET)</b><br>Visits: {target_density}<br>✅ TARGET REACHED!")
+            else:
+                target_text.append(f"<b>🎯 {target_word} (TARGET)</b><br>Not yet reached")
+            target_size.append(target_size_val)
 
-        ax.set_title(f"Step {frame} | Active Copies: {len(current_copy_positions)}\nColor intensity = visit density (attractor basins)")
-        ax.axis('off')
+        target_trace = go.Scatter(
+            x=target_x,
+            y=target_y,
+            mode='markers',
+            hoverinfo='text',
+            text=target_text,
+            marker=dict(
+                size=target_size if target_size else [10],
+                color='#22c55e',  # Solid green
+                symbol='star',
+                opacity=1.0,
+                line=dict(width=0)  # No outline/stroke
+            ),
+            name='Target word',
+            showlegend=True
+        )
 
-        st.pyplot(fig)
-        plt.close()
+        # Create edge trace (will be added last to appear on top)
+        edge_trace = go.Scatter(
+            x=edge_x,
+            y=edge_y,
+            mode='lines',
+            line=dict(width=2.5, color='rgba(60, 60, 60, 0.25)'),  # Uniform 0.25 opacity
+            hoverinfo='skip',
+            showlegend=False
+        )
+
+        # Create figure with edges on top layer
+        traces = [bg_trace, explored_inactive_trace, current_trace]
+        if source_trace:
+            traces.append(source_trace)
+        traces.extend([target_trace, edge_trace])
+        fig = go.Figure(data=traces)
+        
+        # Add arrows for edges using annotations (annotations are always on top)
+        # In Plotly, arrows point FROM (ax, ay) TO (x, y)
+        annotations = []
+        for x0, y0, x1, y1 in edge_list:
+            # Calculate arrow position at the END of the edge (99% to account for arrowhead size)
+            arrow_x = x0 + 0.99 * (x1 - x0)
+            arrow_y = y0 + 0.99 * (y1 - y0)
+            annotations.append(dict(
+                x=arrow_x,  # Arrow points TO this position (at end of edge)
+                y=arrow_y,
+                ax=x0,      # Arrow starts FROM source
+                ay=y0,
+                xref='x',
+                yref='y',
+                axref='x',
+                ayref='y',
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,  # Smaller arrowhead
+                arrowwidth=1,  # Thinner arrow shaft
+                arrowcolor='rgba(32, 32, 32, 0.25)',  # Uniform 0.25 opacity
+            ))
+        
+        if annotations:
+            fig.update_layout(annotations=annotations)
+
+        # Calculate axis ranges from all node positions to prevent resizing when traces are toggled
+        all_x = bg_x + explored_inactive_x + current_x + target_x
+        all_y = bg_y + explored_inactive_y + current_y + target_y
+        
+        if all_x and all_y:
+            x_min, x_max = min(all_x), max(all_x)
+            y_min, y_max = min(all_y), max(all_y)
+            # Add padding (10% on each side)
+            x_range = x_max - x_min
+            y_range = y_max - y_min
+            x_padding = x_range * 0.1 if x_range > 0 else 1
+            y_padding = y_range * 0.1 if y_range > 0 else 1
+            x_axis_range = [x_min - x_padding, x_max + x_padding]
+            y_axis_range = [y_min - y_padding, y_max + y_padding]
+        else:
+            # Default range if no nodes
+            x_axis_range = [-10, 10]
+            y_axis_range = [-10, 10]
+
+        # Update layout
+        fig.update_layout(
+            title=dict(
+                text=f"Step {frame} | Active Copies: {len(current_copy_positions)} | Node size = visit frequency, Color = fitness to target",
+                x=0.5,
+                xanchor='center',
+                font=dict(size=14)
+            ),
+            showlegend=True,
+            legend=dict(
+                x=0.01,
+                y=0.99,
+                bgcolor='rgba(255,255,255,0.8)'
+            ),
+            hovermode='closest',
+            margin=dict(b=20, l=5, r=5, t=60),
+            xaxis=dict(
+                showgrid=False, 
+                zeroline=False, 
+                showticklabels=False,
+                range=x_axis_range,
+                autorange=False  # Keep fixed range when traces are toggled
+            ),
+            yaxis=dict(
+                showgrid=False, 
+                zeroline=False, 
+                showticklabels=False,
+                range=y_axis_range,
+                autorange=False  # Keep fixed range when traces are toggled
+            ),
+            plot_bgcolor='white',
+            height=600
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
 
 # Instructions at the bottom
 st.markdown("---")
@@ -385,12 +637,13 @@ st.markdown("""
 - **Max Attempts**: How many times to retry if target isn't reached
 
 ### 🧬 Understanding the Visualization
-- **Color intensity (yellow→orange→red)**: Shows visit density - darker/redder areas are "attractor basins" where evolution tends to get stuck
-- **Node size**: Larger nodes have been visited more often
-- **Red nodes with dark border**: Current active copy positions
-- **Green edges**: Evolutionary paths taken
-- **Orange edges with ❌**: Invalid mutations that killed a copy
-- **Yellow dashed edges**: Rejected mutations (fitness-based)
+- **🎯 Green star**: Target word (goal of evolution)
+- **Node size**: Larger nodes have been visited more often (proportional to visit frequency)
+- **Node color**: Shows fitness to target
+  - **Blue nodes**: Currently active copy positions
+  - **Orange nodes**: Explored but inactive (visited in past but not currently active)
+- **Gray background**: Unexplored words (never visited)
+- **Hover over nodes**: See word labels, visit counts, and fitness values
 
 ### 🔬 Biological Model
 This simulates evolution of an essential gene:

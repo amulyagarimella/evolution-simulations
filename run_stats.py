@@ -45,11 +45,12 @@ def setup_publication_style():
         'axes.linewidth': 1.2,
     })
 
-    # Set Helvetica font for Illustrator compatibility
-    mpl.rcParams['font.family'] = 'sans-serif'
-    mpl.rcParams['font.sans-serif'] = ['Helvetica', 'Arial', 'DejaVu Sans']
+    # Set CMU Serif font for publication quality
+    mpl.rcParams['font.family'] = 'serif'
+    mpl.rcParams['font.serif'] = ['CMU Serif', 'Computer Modern', 'DejaVu Serif', 'Times']
     mpl.rcParams['pdf.fonttype'] = 42  # TrueType fonts (editable in Illustrator)
     mpl.rcParams['ps.fonttype'] = 42
+    mpl.rcParams['svg.fonttype'] = 'none'  # Keep text as text in SVG (not paths)
     mpl.rcParams['axes.unicode_minus'] = False  # Use proper minus sign
 
     # Higher quality settings
@@ -411,16 +412,17 @@ def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS
     plt.close()
     plots_saved['avg_steps'] = plot2_path
 
-    # PLOT 3: Histogram - Distribution of attempts/run
+    # PLOT 3: KDE - Distribution of attempts/run
     fig, ax = plt.subplots(figsize=(12, 7))
 
     for i, (n_copy, color) in enumerate(zip(x, colors)):
         data_subset = df[df['n_copies'] == n_copy]['attempts']
-        ax.hist(data_subset, bins=20, alpha=0.65, label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
-                color=color, edgecolor='white', linewidth=1.5)
+        sns.kdeplot(data=data_subset, ax=ax, linewidth=3, alpha=0.7,
+                   label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
+                   color=color, fill=True)
 
     ax.set_xlabel('Attempts per Run')
-    ax.set_ylabel('Frequency')
+    ax.set_ylabel('Density')
     ax.set_title('Distribution of Restart Attempts by Gene Copy Number',
                  fontweight='bold', pad=20)
     ax.legend(title='Gene Copies', frameon=True, fancybox=True, shadow=True)
@@ -432,16 +434,17 @@ def plot_comparison_results(result_files: List[Path], output_dir: Path = RESULTS
     plt.close()
     plots_saved['attempts_dist'] = plot3_path
 
-    # PLOT 4: Histogram - Distribution of steps/success
+    # PLOT 4: KDE - Distribution of steps/success
     fig, ax = plt.subplots(figsize=(12, 7))
 
     for i, (n_copy, color) in enumerate(zip(x, colors)):
         data_subset = df[df['n_copies'] == n_copy]['steps_per_success']
-        ax.hist(data_subset, bins=20, alpha=0.65, label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
-                color=color, edgecolor='white', linewidth=1.5)
+        sns.kdeplot(data=data_subset, ax=ax, linewidth=3, alpha=0.7,
+                   label=f'{n_copy} {"copy" if n_copy == 1 else "copies"}',
+                   color=color, fill=True)
 
     ax.set_xlabel('Steps per Successful Attempt')
-    ax.set_ylabel('Frequency')
+    ax.set_ylabel('Density')
     ax.set_title('Distribution of Evolutionary Path Lengths by Gene Copy Number',
                  fontweight='bold', pad=20)
     ax.legend(title='Gene Copies', frameon=True, fancybox=True, shadow=True)
