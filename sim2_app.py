@@ -667,8 +667,6 @@ target_word = st.sidebar.text_input("Target word", value="WORD", max_chars=4).up
 n_copies = st.sidebar.slider("Number of gene copies", min_value=1, max_value=5, value=2,
                              help="1 = essential gene, >1 = gene duplication")
 
-st.sidebar.caption("💡 Try: COLD→BOLD (easy), WORD→WORM (easy), COLD→WARM (hard)")
-
 # Population parameters
 st.sidebar.subheader("Population Parameters")
 N_capacity = st.sidebar.slider("Carrying capacity", min_value=100, max_value=2000,
@@ -785,11 +783,11 @@ if st.session_state.simulation is not None and st.session_state.word_graph is no
         with col1:
             st.markdown(f"**Generation:** {state['generation']}")
             st.markdown(f"**Population Size:** {state['population_size']}")
-            st.markdown(f"**Active Genotypes:** {state['diversity']}")
+            st.markdown(f"**Active Variants:** {state['diversity']}")
             
             # Show active genotypes (top 5 plus target)
             st.markdown("---")
-            st.markdown("**Active Genotypes:**")
+            st.markdown("**Active Variants:**")
             sorted_words = sorted(word_frequencies.items(), key=lambda x: x[1], reverse=True)
             
             # Show target word first if present
@@ -822,15 +820,15 @@ if st.session_state.simulation is not None and st.session_state.word_graph is no
                     else:
                         st.markdown(f"Population: No change")
                     
-                    # Show new genotypes
+                    # Show new variants
                     new_words = set(word_frequencies.keys()) - set(prev_freqs.keys())
                     if new_words:
-                        st.markdown(f"**New genotypes:** {', '.join(sorted(new_words))}")
+                        st.markdown(f"**New variants:** {', '.join(sorted(new_words))}")
                     
-                    # Show extinct genotypes
+                    # Show extinct variants
                     extinct_words = set(prev_freqs.keys()) - set(word_frequencies.keys())
                     if extinct_words:
-                        st.markdown(f"**Extinct genotypes:** {', '.join(sorted(extinct_words))}")
+                        st.markdown(f"**Extinct variants:** {', '.join(sorted(extinct_words))}")
                     
                     # Show frequency changes
                     changed_words = []

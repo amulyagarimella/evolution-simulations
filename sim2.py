@@ -251,7 +251,8 @@ class GillespieSimulation:
             targets: {gene_id: target_word}
             word_graph: NetworkX graph of valid words
             N_carrying_capacity: Population carrying capacity
-            mu: Mutation rate per birth event
+            mu: Mutation rate per gene copy per birth event
+                (each copy mutates independently, so more copies = more mutations)
             s: Selection coefficient (fitness benefit at target)
             birth_rate_base: Base birth rate
             death_rate_base: Base death rate (increases with density)
@@ -330,7 +331,11 @@ class GillespieSimulation:
         return total_birth, total_death
 
     def birth_event(self):
-        """Execute a birth event (with possible mutation)."""
+        """Execute a birth event (with possible mutation).
+
+        Each gene copy has independent mutation probability mu.
+        This is biologically realistic: more gene copies = more mutation supply.
+        """
         # Sample parent proportional to birth rate
         genomes = list(self.population.genotypes.keys())
         birth_rates = [
@@ -343,26 +348,27 @@ class GillespieSimulation:
 
         parent = random.choices(genomes, weights=birth_rates, k=1)[0]
 
-        # Mutation?
-        if random.random() < self.mu:
-            # Mutate random gene copy
-            n_copies = len(parent.genes)
-            copy_idx = random.randint(0, n_copies - 1)
-
-            gene_id, current_word = parent.genes[copy_idx]
-
-            # Try to mutate to neighbor in word graph
-            if current_word in self.word_graph:
-                neighbors = list(self.word_graph.neighbors(current_word))
-                if neighbors:
-                    new_word = random.choice(neighbors)
-                    offspring = parent.mutate_copy(copy_idx, new_word)
+        # Each gene copy mutates independently with probability mu
+        offspring_genes = []
+        for copy_idx, (gene_id, current_word) in enumerate(parent.genes):
+            if random.random() < self.mu:
+                # This copy mutates
+                if current_word in self.word_graph:
+                    neighbors = list(self.word_graph.neighbors(current_word))
+                    if neighbors:
+                        new_word = random.choice(neighbors)
+                        offspring_genes.append((gene_id, new_word))
+                    else:
+                        # No valid neighbors, copy unchanged
+                        offspring_genes.append((gene_id, current_word))
                 else:
-                    offspring = parent  # No valid mutations
+                    # Word not in graph, copy unchanged
+                    offspring_genes.append((gene_id, current_word))
             else:
-                offspring = parent  # Can't mutate
-        else:
-            offspring = parent  # Perfect copy
+                # No mutation, perfect copy
+                offspring_genes.append((gene_id, current_word))
+
+        offspring = Genome(genes=tuple(offspring_genes))
 
         # Track new genotypes and words
         if offspring not in self.all_genotypes_seen:
@@ -527,6 +533,7 @@ class GillespieSimulation:
                 'generation': state['generation'],
                 'population_size': state['population_size'],
                 'diversity': state['diversity'],
+                'genotypes': state['genotypes'],
                 'dominant_frequency': state['dominant_frequency'],
                 'explored_genotypes': state.get('explored_genotypes', 0),
                 'explored_words': state.get('explored_words', 0),
